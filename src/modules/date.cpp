@@ -1,7 +1,14 @@
 #include "modules/date.hpp"
+#include <chrono>
+#include <iomanip>
+#include <thread>
 
+#include "components/builder.hpp"
+#include "drawtypes/animation.hpp"
 #include "drawtypes/label.hpp"
 #include "modules/meta/base.inl"
+#include "utils/action_router.hpp"
+#include "modules/meta/timer_module.hpp"
 
 POLYBAR_NS
 
@@ -27,8 +34,11 @@ namespace modules {
 
     set_interval(1s);
 
-    m_formatter->add(DEFAULT_FORMAT, TAG_LABEL, {TAG_LABEL, TAG_DATE});
+    m_formatter->add(DEFAULT_FORMAT, TAG_LABEL, {TAG_LABEL, TAG_DATE, TAG_ANIMATION_CLOCK});
 
+    if (m_formatter->has(TAG_ANIMATION_CLOCK)) {
+      m_animation_clock = load_animation(m_conf, name(), TAG_ANIMATION_CLOCK);
+    }
     if (m_formatter->has(TAG_DATE)) {
       m_log.warn("%s: The format tag `<date>` is deprecated, use `<label>` instead.", name());
 
@@ -72,8 +82,55 @@ namespace modules {
     return true;
   }
 
+  /**
+   * Subthread runner that emits update events to refresh <animation-clock>
+   * or in case it is used.
+   */
+  void date_module::subthread() {
+    m_log.trace("%s: Start of subthread", name());
+
+    while (running()) {
+      auto now = chrono::steady_clock::now();
+      auto framerate = 1000U; // milliseconds
+      if (m_animation_clock) {
+        m_animation_clock->increment();
+        broadcast();
+        framerate = m_animation_clock->framerate();
+      }
+
+      now += chrono::milliseconds(framerate);
+      this_thread::sleep_until(now);
+    }
+
+    m_log.trace("%s: End of subthread", name());
+  }
+
+  /**
+   * Dispatch the subthread used to update the
+   * clock animation when the module is started
+   */
+  void date_module::start() {
+    this->timer_module::start();
+
+    // We only start animation thread if there is at least one animation.
+    if (m_animation_clock) {
+      m_subthread = thread(&date_module::subthread, this);
+    }
+  }
+
+  /**
+   * Release wake lock when stopping the module
+   */
+  void date_module::teardown() {
+    if (m_subthread.joinable()) {
+      m_subthread.join();
+    }
+  }
+
   bool date_module::build(builder* builder, const string& tag) const {
-    if (tag == TAG_LABEL) {
+    if (tag == TAG_ANIMATION_CLOCK) {
+      builder->node(m_animation_clock->get());
+    } else if (tag == TAG_LABEL) {
       if (!m_dateformat_alt.empty() || !m_timeformat_alt.empty()) {
         builder->action(mousebtn::LEFT, *this, EVENT_TOGGLE, "", m_label);
       } else {
