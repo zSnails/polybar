@@ -2,9 +2,8 @@
 
 #include <atomic>
 #include <ctime>
-#include <iomanip>
-#include <iostream>
 
+#include "modules/meta/base.hpp"
 #include "modules/meta/timer_module.hpp"
 #include "modules/meta/types.hpp"
 
@@ -22,14 +21,20 @@ namespace modules {
 
     static constexpr auto EVENT_TOGGLE = "toggle";
 
+    void teardown();
+
    protected:
     void action_toggle();
+    void subthread();
+    void start() override;
 
    private:
     static constexpr auto TAG_LABEL = "<label>";
 
     // @deprecated: Use <label>
     static constexpr auto TAG_DATE = "<date>";
+
+    static constexpr const char* TAG_ANIMATION_CLOCK{"<animation-clock>"};
 
     label_t m_label;
 
@@ -40,6 +45,10 @@ namespace modules {
 
     string m_date;
     string m_time;
+
+    animation_t m_animation_clock;
+
+    thread m_subthread;
 
     // Single stringstream to be used to gather the results of std::put_time
     std::stringstream datetime_stream;
